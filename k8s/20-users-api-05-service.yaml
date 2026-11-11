@@ -1,0 +1,20 @@
+# Nome estável + balanceamento entre as réplicas (Aula 4). Dentro do cluster: http://users-api:80
+# ClusterIP: não exposto fora do cluster. Acesso local: kubectl -n fcg port-forward svc/users-api <porta>:80
+apiVersion: v1
+kind: Service
+metadata:
+  name: users-api
+  namespace: fcg
+  labels:
+    app.kubernetes.io/name: users-api
+    app.kubernetes.io/part-of: fcg
+    app.kubernetes.io/component: api
+    app.kubernetes.io/version: "1.0.0"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: users-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

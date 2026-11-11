@@ -1,0 +1,8 @@
+# Isola todos os recursos da FCG: facilita a limpeza (kubectl delete namespace fcg) e permite aplicar
+# ResourceQuota/NetworkPolicy por namespace. Aplicar de novo é idempotente (já existe → "unchanged").
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fcg
+  labels:
+    app.kubernetes.io/part-of: fcg

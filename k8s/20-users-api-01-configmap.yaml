@@ -1,0 +1,27 @@
+# Configuração NÃO sensível (requisito: "ConfigMaps para nomes de filas/tópicos e URLs de serviços").
+# Injetada como variáveis de ambiente (envFrom). Convenção .NET: "__" = ":" → Jwt__Issuer vira Jwt:Issuer.
+# Repare nas URLs: sempre o NOME do Service do Kubernetes (rabbitmq, users-api:80, jaeger:4317), nunca IP.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: users-api-config
+  namespace: fcg
+  labels:
+    app.kubernetes.io/name: users-api
+    app.kubernetes.io/part-of: fcg
+    app.kubernetes.io/component: api
+    app.kubernetes.io/version: "1.0.0"
+data:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  ApiDocs__Enabled: "true"
+  RabbitMq__Host: "rabbitmq"
+  RabbitMq__Port: "5672"
+  RabbitMq__VirtualHost: "/"
+  Jwt__Issuer: "fcg-users-api"
+  Jwt__Audience: "fcg"
+  Jwt__AccessTokenLifetimeMinutes: "60"
+  Seed__AdminName: "Administrador FCG"
+  Seed__AdminEmail: "admin@fcg.local"
+  RateLimiting__Authentication__PermitLimit: "20"
+  RateLimiting__Authentication__WindowSeconds: "60"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"

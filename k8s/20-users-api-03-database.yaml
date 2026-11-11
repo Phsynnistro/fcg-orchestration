@@ -1,0 +1,104 @@
+# Database per Service: este PostgreSQL pertence SÓ ao users-api. Nenhum outro serviço conhece esta
+# connection string — a integração acontece por eventos, nunca por JOIN entre bancos.
+#
+# Persistência (Aula 6 — Volumes): o PersistentVolumeClaim pede 1 Gi à StorageClass padrão do cluster;
+# o dado sobrevive à recriação do pod. Em produção: banco gerenciado (ex.: Azure Database for PostgreSQL).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: users-db-data
+  namespace: fcg
+  labels:
+    app.kubernetes.io/name: users-db
+    app.kubernetes.io/part-of: fcg
+    app.kubernetes.io/component: database
+    app.kubernetes.io/version: "1.0.0"
+spec:
+  accessModes: ["ReadWriteOnce"] # montado por UM nó por vez
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: users-db
+  namespace: fcg
+  labels:
+    app.kubernetes.io/name: users-db
+    app.kubernetes.io/part-of: fcg
+    app.kubernetes.io/component: database
+    app.kubernetes.io/version: "1.0.0"
+  annotations:
+    kubernetes.io/change-cause: "postgres:17-alpine — banco do users-api"
+spec:
+  replicas: 1 # banco relacional não escala trocando o número de réplicas: sempre 1 aqui
+  strategy:
+    type: Recreate # o pod antigo libera o volume ANTES do novo subir: nunca dois Postgres no mesmo diretório
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: users-db
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: users-db
+        app.kubernetes.io/part-of: fcg
+        app.kubernetes.io/component: database
+        app.kubernetes.io/version: "1.0.0"
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+          envFrom:
+            - secretRef:
+                name: users-db-credentials
+          env:
+            - name: PGDATA # subdiretório: a raiz do volume pode conter "lost+found"
+              value: /var/lib/postgresql/data/pgdata
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -h 127.0.0.1 -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -h 127.0.0.1 -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 4
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: users-db-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: users-db # a connection string usa este nome: Host=users-db
+  namespace: fcg
+  labels:
+    app.kubernetes.io/name: users-db
+    app.kubernetes.io/part-of: fcg
+    app.kubernetes.io/component: database
+    app.kubernetes.io/version: "1.0.0"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: users-db
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres

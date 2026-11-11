@@ -1,0 +1,29 @@
+==============================================================================
+ TECH CHALLENGE — FASE 2 — FIAP CLOUD GAMES (FCG)
+ Relatório de entrega
+==============================================================================
+
+Nome do grupo: <preencher>
+
+Participantes (nome — RM — usuário no Discord):
+  - <nome> — <RM> — <@discord>
+  - <nome> — <RM> — <@discord>
+
+Link da documentação:
+  https://github.com/Phsynnistro/fcg-orchestration#readme
+  (arquitetura: docs/arquitetura.md · decisões: docs/adr/)
+
+Repositórios:
+  Orquestração ........ https://github.com/Phsynnistro/fcg-orchestration
+  UsersAPI ............ https://github.com/Phsynnistro/fcg-users-api
+  CatalogAPI .......... https://github.com/Phsynnistro/fcg-catalog-api
+  PaymentsAPI ......... https://github.com/Phsynnistro/fcg-payments-api
+  NotificationsAPI .... https://github.com/Phsynnistro/fcg-notifications-api
+
+Vídeo de demonstração (até 20 min):
+  <link do YouTube — visibilidade "Não listado">
+
+Stack: .NET 10 · ASP.NET Core Minimal APIs · EF Core 10 + PostgreSQL 17 · OpenTelemetry + Jaeger ·
+       RabbitMQ 4.1 + MassTransit 8.5 (Outbox/Inbox) · Docker multi-stage ·
+       Kubernetes (Kind/Minikube/Docker Desktop)
+==============================================================================

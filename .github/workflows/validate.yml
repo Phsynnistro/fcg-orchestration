@@ -1,0 +1,43 @@
+name: validate
+
+# Garante que o repositório de ambiente continua coerente com os repositórios dos serviços.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: fcg-orchestration
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/fcg-users-api
+          path: fcg-users-api
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/fcg-catalog-api
+          path: fcg-catalog-api
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/fcg-payments-api
+          path: fcg-payments-api
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/fcg-notifications-api
+          path: fcg-notifications-api
+
+      - name: docker compose config (sintaxe e interpolação)
+        working-directory: fcg-orchestration
+        run: docker compose config --quiet
+
+      - name: Manifestos de k8s/ sincronizados com os repositórios dos serviços
+        working-directory: fcg-orchestration
+        run: ./scripts/k8s-sync-manifests.sh --check

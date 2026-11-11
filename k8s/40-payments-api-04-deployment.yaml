@@ -1,0 +1,101 @@
+# Deployment → ReplicaSet → Pods (Aula 5). Nunca criamos Pods "soltos": sem controlador, um pod que
+# morre não volta. O Deployment mantém o estado desejado e faz rolling update sem downtime.
+#
+# Rótulos (labels) IDENTIFICAM e são usados em seletores; anotações (annotations) DESCREVEM e não são
+# usadas para seleção (Aula 3). "kubernetes.io/change-cause" aparece em: kubectl rollout history deployment/payments-api
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments-api
+  namespace: fcg
+  labels:
+    app.kubernetes.io/name: payments-api
+    app.kubernetes.io/part-of: fcg
+    app.kubernetes.io/component: api
+    app.kubernetes.io/version: "1.0.0"
+  annotations:
+    kubernetes.io/change-cause: "fcg/payments-api:1.0.0 — versão inicial da Fase 2"
+    fcg.dev/repository: "https://github.com/Phsynnistro/fcg-payments-api"
+spec:
+  # Sem "replicas": quem decide é o HorizontalPodAutoscaler (06-hpa.yaml, mínimo 2). Se o campo existisse,
+  # cada "kubectl apply" reverteria a escala feita pelo HPA.
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: payments-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0 # nunca derruba uma réplica antes de a nova estar Ready
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: payments-api
+        app.kubernetes.io/part-of: fcg
+        app.kubernetes.io/component: api
+        app.kubernetes.io/version: "1.0.0"
+      annotations:
+        fcg.dev/description: "Processamento (simulado) de pagamentos"
+    spec:
+      automountServiceAccountToken: false # a aplicação não fala com a API do Kubernetes
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1654 # usuário "app" da imagem chiseled do .NET
+        runAsGroup: 1654
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: payments-api
+          image: fcg/payments-api:1.0.0
+          imagePullPolicy: IfNotPresent # imagem carregada localmente (kind load / minikube image load)
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: payments-api-config
+            - secretRef:
+                name: payments-api-secrets
+          resources: # requests são obrigatórios para o HPA calcular a % de CPU
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi
+          # Aula 7 — Probes. startupProbe segura as outras enquanto a app sobe (inclui o retry do banco).
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 3
+            failureThreshold: 40
+          # liveness: processo travado → reinicia. NÃO depende do banco (evita restart em cascata).
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # readiness: dependência indispensável fora → sai do balanceamento do Service, sem reiniciar.
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp # emptyDir (Aula 6): /tmp gravável para o runtime .NET com filesystem somente-leitura
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

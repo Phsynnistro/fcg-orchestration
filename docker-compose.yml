@@ -1,0 +1,209 @@
+# =============================================================================
+#  FIAP Cloud Games — ambiente completo local
+#
+#    docker compose up -d --build        (ou: docker-compose up -d --build)
+#
+#  Funciona SEM arquivo .env: todo valor tem default de DESENVOLVIMENTO (${VAR:-default}).
+#  Para sobrescrever, crie um .env a partir do .env.example (o .env não vai para o Git).
+#
+#  Pré-requisito: os 5 repositórios clonados lado a lado (ver README):
+#    ./fcg-orchestration  ./fcg-users-api  ./fcg-catalog-api  ./fcg-payments-api  ./fcg-notifications-api
+#
+#  Portas no host: Users 5001 | Catalog 5002 | Payments 5003 | Notifications 5004
+#                  RabbitMQ UI 15672 | Jaeger UI 16686
+#  Bancos e OTLP expostos só em 127.0.0.1 (para depurar com dotnet run / DBeaver).
+# =============================================================================
+name: fcg
+
+networks:
+  default:
+    name: fcg-network # rede bridge dedicada: os containers se encontram pelo NOME do serviço (DNS interno)
+
+volumes:
+  rabbitmq-data:
+  users-db-data:
+  catalog-db-data:
+  payments-db-data:
+
+services:
+  # ---------------------------------------------------------------- broker --
+  rabbitmq:
+    image: rabbitmq:4.1-management-alpine
+    hostname: rabbitmq # nome do nó estável (rabbit@rabbitmq) → o volume continua válido entre recriações
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-fcg}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-fcg_dev_pwd}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      - ./rabbitmq/20-fcg.conf:/etc/rabbitmq/conf.d/20-fcg.conf:ro
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  # ------------------------------------------------------- observabilidade --
+  jaeger:
+    image: jaegertracing/jaeger:2.20.0
+    environment:
+      JAEGER_LISTEN_HOST: 0.0.0.0 # o padrão é localhost: sem isto, os outros containers não enviam traces
+    ports:
+      - "16686:16686"            # UI
+      - "127.0.0.1:4317:4317"    # OTLP gRPC (para dotnet run local)
+    restart: unless-stopped
+
+  # ------------------------------------------- um banco por microsserviço --
+  users-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: fcg_users
+      POSTGRES_USER: fcg_users
+      POSTGRES_PASSWORD: ${USERS_DB_PASSWORD:-users_dev_pwd}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - users-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fcg_users -d fcg_users"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  catalog-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: fcg_catalog
+      POSTGRES_USER: fcg_catalog
+      POSTGRES_PASSWORD: ${CATALOG_DB_PASSWORD:-catalog_dev_pwd}
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - catalog-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fcg_catalog -d fcg_catalog"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  payments-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: fcg_payments
+      POSTGRES_USER: fcg_payments
+      POSTGRES_PASSWORD: ${PAYMENTS_DB_PASSWORD:-payments_dev_pwd}
+    ports:
+      - "127.0.0.1:5435:5432"
+    volumes:
+      - payments-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fcg_payments -d fcg_payments"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  # ------------------------------------------------------- microsserviços --
+  # Imagens chiseled não têm curl/wget → sem healthcheck de container aqui.
+  # No Kubernetes a saúde é verificada por HTTP probes em /health/live e /health/ready.
+  users-api:
+    build: ../fcg-users-api
+    image: fcg/users-api:1.0.0
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ApiDocs__Enabled: "true"
+      ConnectionStrings__Database: "Host=users-db;Port=5432;Database=fcg_users;Username=fcg_users;Password=${USERS_DB_PASSWORD:-users_dev_pwd}"
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: ${RABBITMQ_USER:-fcg}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD:-fcg_dev_pwd}
+      Jwt__Issuer: fcg-users-api
+      Jwt__Audience: fcg
+      # Chave privada de DESENVOLVIMENTO (pública neste repositório). Gere outra: scripts/generate-jwt-keys.sh
+      Jwt__PrivateKey: ${JWT_PRIVATE_KEY:-MIIEowIBAAKCAQEApbfE6JO9GmhGgGTmFwYeVzfw4HUGulsRCDIaVyLNQRvrWcoMfRFJ3828f2NxNUvddT0v0Ts+yVu4cE1rZQYBokujVukGOu+fc679ij+klTJWRptWtsIx6WRdS601LGOcNyWHijdeAaWxOcq5nrcFAP5fm3rxcJXI0YBwe+MHptZ12oQGbILD8W5tq65cK7Emz0WOnY3J7oIf4spGoyr0AAEAL9hPvT5aoIYST3bkXgePkXsCKRKdv4pa7Bb3lbWQ+b9sXdyffdynScGCLKvtN8AHAxjcQU+T9iKUeYrC0oMr8TayB5ftA2WVFGQZV0H27uJFXtHsjdC76D3QZZJaCwIDAQABAoIBACf6NzRsP5hZQ3jB3of7X+JmimN7l83pHii9/YC70ow8cgBNL8oUG6Az/58znCHhVWFtC1YMVs84ozvkUV4jns1KNfNHb8tT90FvG5b4V3nulMWfv8GDA4tsPN1+wW8d8JeVJCeBx9nZ4PEyKKlTOY/Nzb6yYABrAfEYbQpV8IicnDNA/tZc1GspGEINtrRNsYMBITwP3dGGfJWyLwbaADitfZ63lKeJd9YCxHXcXo2UE0beN8pzP6Y2HD2XQ4+L7vSuVbBxd+yfDh5Ed2mZZbUqnAvIvOMnfe2YMSO2PkAoqDyEKoLr4OE51Mq1g+XdiNLUNJj52dWZwXs2B9Zq3CECgYEA4aWRC6t2zlIgEY3Xx+YYHaG02Q8zQCyW75MJKcdkWub4n50/dkj0ZmEkea/VAeU5mv+bT7veQSPX91TtsYXkDep6JhI4xB3AMJeDndgSjN7CpJ/5Hewq66oRlRrqAlj9qRs7ZVL+KwQGPPAyZRAAGJjqdHH70bDYHNf5kgNfN0kCgYEAvAJ5gOa/bA2Exns0D6gjOUpHrZpA2+1PIC5aeW3g2DROIPdLK0We6LHZ1RuWSMaMuA9nkmt4qMDH8yf17O0kibBECblGhMcUCB0qh/f3VdBByxSDkwD4NVB4AD7eYVrOZv+fJh4rAXxdh81+5jFoKxTTdSDOaqrpSTJHPQxvIrMCgYEA22Mlhgocxfb1NPwLC1E8qzq44b20n7V6vs3fv94cRYGBw3aY6EGAVjYmx6VcXa5n9rqEX96R9hWKee/59nruQ1Vxk6htxsgCP3xgvEwDpTFEX9kl1aD0DhNZavYzBTtOzWcrtZUeh+YuxnrnFHmdDk1Gzxavtq3RQSH/haZ/ofkCgYBO0+LJzvW3gjuHVKTRY7fRD3naKfDDxU4Fuimo/A7n15ZicA0OSZSFD/y7Q2PRg54AlkTguTrP1nR/WOPdwNgu+r6sLQiKJ0YY2NG6TJdhXX4YfbNk8WUgRWrq/3ER9JbRzJ+XxdJWPySgCeMI9PIuDf9S/rxNMPe6/t+rkwkNzQKBgEyRVeMXX62gA7q31fRrCWau89T3S4SIdLr0dqzxvUzRUb0zFZ4pWSmwhDrh5OFe3DBo3vjoPu5MOJkVChKiQC38rSvdXq9dMBVnqrOh7fLTFWRhyykUJuYfkNenIVnc0xSLqe7xbAYDVaJdAPgsYvXwcnmeb1q+Wop1HvJt3T+8}
+      Seed__AdminEmail: ${ADMIN_EMAIL:-admin@fcg.local}
+      Seed__AdminPassword: ${ADMIN_PASSWORD:-Admin@12345}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+    ports:
+      - "5001:8080"
+    depends_on:
+      users-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  catalog-api:
+    build: ../fcg-catalog-api
+    image: fcg/catalog-api:1.0.0
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ApiDocs__Enabled: "true"
+      ConnectionStrings__Database: "Host=catalog-db;Port=5432;Database=fcg_catalog;Username=fcg_catalog;Password=${CATALOG_DB_PASSWORD:-catalog_dev_pwd}"
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: ${RABBITMQ_USER:-fcg}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD:-fcg_dev_pwd}
+      Jwt__Issuer: fcg-users-api
+      Jwt__Audience: fcg
+      # Comunicação serviço-a-serviço pelo NOME do serviço (DNS da rede fcg-network).
+      Jwt__MetadataAddress: http://users-api:8080/.well-known/openid-configuration
+      Messaging__Queues__PaymentProcessed: catalog.payment-processed
+      Seed__SampleGames: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+    ports:
+      - "5002:8080"
+    depends_on:
+      catalog-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  payments-api:
+    build: ../fcg-payments-api
+    image: fcg/payments-api:1.0.0
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ApiDocs__Enabled: "true"
+      ConnectionStrings__Database: "Host=payments-db;Port=5432;Database=fcg_payments;Username=fcg_payments;Password=${PAYMENTS_DB_PASSWORD:-payments_dev_pwd}"
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: ${RABBITMQ_USER:-fcg}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD:-fcg_dev_pwd}
+      Jwt__Issuer: fcg-users-api
+      Jwt__Audience: fcg
+      Jwt__MetadataAddress: http://users-api:8080/.well-known/openid-configuration
+      Messaging__Queues__OrderPlaced: payments.order-placed
+      PaymentSimulation__MaxApprovedAmount: ${PAYMENT_MAX_APPROVED_AMOUNT:-300.00}
+      PaymentSimulation__ProcessingDelayMs: "1500"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+    ports:
+      - "5003:8080"
+    depends_on:
+      payments-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  notifications-api:
+    build: ../fcg-notifications-api
+    image: fcg/notifications-api:1.0.0
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: ${RABBITMQ_USER:-fcg}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD:-fcg_dev_pwd}
+      Messaging__Queues__UserCreated: notifications.user-created
+      Messaging__Queues__PaymentProcessed: notifications.payment-processed
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+    ports:
+      - "5004:8080"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped

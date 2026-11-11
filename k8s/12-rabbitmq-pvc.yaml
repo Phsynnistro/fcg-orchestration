@@ -1,0 +1,15 @@
+# Aula 6 — Volumes: filas duráveis e mensagens persistidas sobrevivem à recriação do pod do broker.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rabbitmq-data
+  namespace: fcg
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/part-of: fcg
+    app.kubernetes.io/component: message-broker
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi

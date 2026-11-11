@@ -1,0 +1,7 @@
+# Cluster local com Kind:  kind create cluster --config cluster/kind-config.yaml
+# (Fica FORA da pasta k8s/ de propósito: não é um recurso do Kubernetes, é config do Kind.)
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: fcg
+nodes:
+  - role: control-plane

@@ -1,0 +1,24 @@
+# Configuração NÃO sensível (requisito: "ConfigMaps para nomes de filas/tópicos e URLs de serviços").
+# Injetada como variáveis de ambiente (envFrom). Convenção .NET: "__" = ":" → Jwt__Issuer vira Jwt:Issuer.
+# Repare nas URLs: sempre o NOME do Service do Kubernetes (rabbitmq, users-api:80, jaeger:4317), nunca IP.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: notifications-api-config
+  namespace: fcg
+  labels:
+    app.kubernetes.io/name: notifications-api
+    app.kubernetes.io/part-of: fcg
+    app.kubernetes.io/component: api
+    app.kubernetes.io/version: "1.0.0"
+data:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  RabbitMq__Host: "rabbitmq"
+  RabbitMq__Port: "5672"
+  RabbitMq__VirtualHost: "/"
+  Messaging__Queues__UserCreated: "notifications.user-created"
+  Messaging__Queues__PaymentProcessed: "notifications.payment-processed"
+  Messaging__PrefetchCount: "16"
+  Messaging__ConcurrentMessageLimit: "8"
+  Email__From: "no-reply@fiapcloudgames.com"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"

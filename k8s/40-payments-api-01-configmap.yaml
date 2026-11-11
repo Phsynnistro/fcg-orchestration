@@ -1,0 +1,29 @@
+# Configuração NÃO sensível (requisito: "ConfigMaps para nomes de filas/tópicos e URLs de serviços").
+# Injetada como variáveis de ambiente (envFrom). Convenção .NET: "__" = ":" → Jwt__Issuer vira Jwt:Issuer.
+# Repare nas URLs: sempre o NOME do Service do Kubernetes (rabbitmq, users-api:80, jaeger:4317), nunca IP.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: payments-api-config
+  namespace: fcg
+  labels:
+    app.kubernetes.io/name: payments-api
+    app.kubernetes.io/part-of: fcg
+    app.kubernetes.io/component: api
+    app.kubernetes.io/version: "1.0.0"
+data:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  ApiDocs__Enabled: "true"
+  RabbitMq__Host: "rabbitmq"
+  RabbitMq__Port: "5672"
+  RabbitMq__VirtualHost: "/"
+  Jwt__Issuer: "fcg-users-api"
+  Jwt__Audience: "fcg"
+  Jwt__MetadataAddress: "http://users-api:80/.well-known/openid-configuration"
+  Jwt__RequireHttpsMetadata: "false"
+  Messaging__Queues__OrderPlaced: "payments.order-placed"
+  Messaging__PrefetchCount: "16"
+  Messaging__ConcurrentMessageLimit: "8"
+  PaymentSimulation__MaxApprovedAmount: "300.00"
+  PaymentSimulation__ProcessingDelayMs: "1500"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"

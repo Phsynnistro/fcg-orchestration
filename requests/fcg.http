@@ -1,0 +1,74 @@
+### =============================================================================
+###  FIAP Cloud Games — requisições para demonstração manual
+###  Visual Studio 2022 (17.12+) · VS Code (extensão REST Client) · Rider
+###  Ordem sugerida: 1 → 2 → 4 → 5 → 6 (repita até Approved) → 7 → 8
+### =============================================================================
+@users = http://localhost:5001
+@catalog = http://localhost:5002
+@payments = http://localhost:5003
+@email = jogador.demo@fcg.local
+@password = Senha@123
+
+### 1) Cadastro — publica UserCreatedEvent (veja o e-mail no log do NotificationsAPI)
+POST {{users}}/api/users
+Content-Type: application/json
+
+{ "name": "Jogador Demo", "email": "{{email}}", "password": "{{password}}" }
+
+### 2) Login
+# @name login
+POST {{users}}/api/auth/login
+Content-Type: application/json
+
+{ "email": "{{email}}", "password": "{{password}}" }
+
+### 3) Quem sou eu (token decodificado pelo servidor)
+GET {{users}}/api/users/me
+Authorization: Bearer {{login.response.body.$.accessToken}}
+
+### 4) Catálogo (anônimo)
+# @name games
+GET {{catalog}}/api/games?pageSize=50
+
+### 5) Iniciar compra → 202 Accepted (troque o gameId por um jogo de até R$ 300 para aprovar)
+# @name order
+POST {{catalog}}/api/orders
+Authorization: Bearer {{login.response.body.$.accessToken}}
+Content-Type: application/json
+
+{ "gameId": "{{games.response.body.$.items[0].id}}" }
+
+### 6) Acompanhar o pedido (Pending → Approved | Rejected)
+GET {{catalog}}/api/orders/{{order.response.body.$.id}}
+Authorization: Bearer {{login.response.body.$.accessToken}}
+
+### 7) Biblioteca
+GET {{catalog}}/api/library
+Authorization: Bearer {{login.response.body.$.accessToken}}
+
+### 8) Pagamento do pedido (PaymentsAPI)
+GET {{payments}}/api/payments/orders/{{order.response.body.$.id}}
+Authorization: Bearer {{login.response.body.$.accessToken}}
+
+### 9) Login do administrador (seed)
+# @name admin
+POST {{users}}/api/auth/login
+Content-Type: application/json
+
+{ "email": "admin@fcg.local", "password": "Admin@12345" }
+
+### 10) Cadastrar jogo (somente Admin)
+POST {{catalog}}/api/games
+Authorization: Bearer {{admin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{ "title": "Jogo Novo", "description": "Cadastrado pelo admin", "genre": "Indie", "price": 49.90, "releaseDate": "2026-10-01" }
+
+### 11) Discovery e JWKS — como Catalog/Payments obtêm a chave pública
+GET {{users}}/.well-known/openid-configuration
+
+###
+GET {{users}}/.well-known/jwks.json
+
+### 12) Saúde
+GET {{catalog}}/health

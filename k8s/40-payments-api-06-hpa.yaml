@@ -1,0 +1,30 @@
+# Aula 8 — Dimensionamento automático. Mantém entre 2 e 5 réplicas mirando 70% de CPU (sobre o REQUEST).
+# Requer o metrics-server (scripts/k8s-install-metrics-server.sh). Sem ele, "kubectl get hpa" mostra
+# <unknown>, mas o mínimo de 2 réplicas continua sendo garantido.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: payments-api
+  namespace: fcg
+  labels:
+    app.kubernetes.io/name: payments-api
+    app.kubernetes.io/part-of: fcg
+    app.kubernetes.io/component: api
+    app.kubernetes.io/version: "1.0.0"
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: payments-api
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 120 # evita "sobe-desce" em picos curtos

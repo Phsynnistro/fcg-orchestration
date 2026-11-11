@@ -1,0 +1,19 @@
+# ConfigMap montado como ARQUIVO (não como variável de ambiente): a outra forma de consumir ConfigMap,
+# útil quando o software espera um arquivo de configuração — caso do RabbitMQ (/etc/rabbitmq/conf.d/).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rabbitmq-config
+  namespace: fcg
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/part-of: fcg
+    app.kubernetes.io/component: message-broker
+data:
+  20-fcg.conf: |
+    # Configuração do broker (montada em /etc/rabbitmq/conf.d/). Mesmo conteúdo no compose e no Kubernetes (via ConfigMap).
+    listeners.tcp.default = 5672
+    management.tcp.port = 15672
+    # Usa até 60% da memória do container antes de aplicar backpressure nos publishers.
+    vm_memory_high_watermark.relative = 0.6
+    disk_free_limit.absolute = 256MB

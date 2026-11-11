@@ -1,0 +1,85 @@
+# RabbitMQ em nó único gerenciado por Deployment (requisito do desafio).
+# Dois cuidados que tornam isso seguro com volume persistente:
+#  1) strategy Recreate: o pod antigo libera o volume antes do novo montar;
+#  2) hostname fixo "rabbitmq": o RabbitMQ guarda os dados em mnesia/rabbit@<hostname>. Com o nome aleatório
+#     do pod (rabbitmq-7f9c...), cada recriação "esqueceria" filas e mensagens. Fixo, o nó é sempre rabbit@rabbitmq.
+# Produção: RabbitMQ Cluster Operator (3 nós, quorum queues) ou serviço gerenciado.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rabbitmq
+  namespace: fcg
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/part-of: fcg
+    app.kubernetes.io/component: message-broker
+  annotations:
+    kubernetes.io/change-cause: "rabbitmq:4.1-management-alpine"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rabbitmq
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rabbitmq
+        app.kubernetes.io/part-of: fcg
+        app.kubernetes.io/component: message-broker
+      annotations:
+        fcg.dev/description: "Broker de mensagens dos fluxos de cadastro e compra"
+    spec:
+      hostname: rabbitmq
+      terminationGracePeriodSeconds: 60 # tempo para fechar conexões e sincronizar o disco
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:4.1-management-alpine
+          ports:
+            - name: amqp
+              containerPort: 5672
+            - name: management
+              containerPort: 15672
+          envFrom:
+            - secretRef:
+                name: rabbitmq-credentials
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          startupProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 18
+          livenessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+            periodSeconds: 15
+            timeoutSeconds: 15
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/rabbitmq
+            - name: config
+              mountPath: /etc/rabbitmq/conf.d/20-fcg.conf
+              subPath: 20-fcg.conf
+              readOnly: true
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: rabbitmq-data
+        - name: config
+          configMap:
+            name: rabbitmq-config
